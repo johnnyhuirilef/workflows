@@ -214,7 +214,19 @@ export interface WorkflowStore {
    * See `WorkflowWrite` for what each field does.
    */
   write(id: string, token: string, write: WorkflowWrite): Promise<boolean>;
+  /**
+   * Optional, for a store whose ids, names or keys are bounded (columns of a fixed length): throws, synchronously, an
+   * error that names the key (a `RangeError`) when the store can't hold `value` as a `kind`. The engine calls it for
+   * what a run makes up as it goes (a step's or a wait's name, `$compensate:<step>`, a child's id and keys, a wait's
+   * signal and key) before it journals or starts anything with it, so the error fails the run at the call that made
+   * the key, and the instance compensates, instead of failing every write that carries it. Without this method, the
+   * store's own check in `write()` or `create()` is all there is, and the instance is retried as after any store error.
+   */
+  checkKey?(kind: WorkflowKeyKind, value: string): void;
 }
+
+/** The ids, names and keys `WorkflowStore.checkKey()` checks. */
+export type WorkflowKeyKind = 'instanceId' | 'workflow' | 'concurrencyKey' | 'rateLimitKey' | 'journalName' | 'signal' | 'signalKey';
 
 /** `WorkflowStore.get()`'s result, and `WorkflowClient.getStatus()`'s. */
 export interface WorkflowInstanceDetails extends WorkflowInstance {
