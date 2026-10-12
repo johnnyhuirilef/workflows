@@ -52,7 +52,7 @@ import type { WorkflowJournalLimits } from '../interfaces/workflows-module-optio
 import type { WorkflowEvents } from '../events/workflow-events.service.js';
 import type { WorkflowEvent } from '../events/workflow-events.interface.js';
 import { signalName } from '../signals/workflow.signal.js';
-import type { NewWorkflowInstance, WorkflowSignalRecord } from '../interfaces/workflow-store.interface.js';
+import type { NewWorkflowInstance, WorkflowKeyKind, WorkflowSignalRecord } from '../interfaces/workflow-store.interface.js';
 import type { WorkflowInstanceStore } from '../storage/encoded-workflow.store.js';
 
 /** An instance under a worker's lease. */
@@ -425,6 +425,7 @@ export class WorkflowExecution {
       }
 
       try {
+        this.checkKey('journalName', name);
         const attempt = await this.attempt(
           name,
           'compensation',
@@ -483,6 +484,10 @@ export class WorkflowExecution {
     }
 
     this.assertCanStart();
+    if (options.compensate) {
+      // Checked before the step runs: a side effect whose undo the store couldn't journal never happens.
+      this.checkKey('journalName', `${COMPENSATE}${name}`);
+    }
     const plan = this.plan(name, options);
     // Reserved in call order, so parallel steps compensate in the same order
     // on the first run and on a replay, whichever finished first.
@@ -534,6 +539,7 @@ export class WorkflowExecution {
     }
 
     this.assertAlive();
+    this.checkWait(wait);
     const deadline = entry
       ? (entry.wakeAt ?? null)
       : options.timeout !== undefined
@@ -629,6 +635,10 @@ export class WorkflowExecution {
       parentId: this.instance.id,
       parentClose,
     });
+    this.checkKey('instanceId', child.id);
+    this.checkKey('workflow', child.workflow);
+    this.checkKey('concurrencyKey', child.concurrencyKey);
+    this.checkKey('rateLimitKey', child.rateLimitKey);
     await this.reachFrontier(name);
     this.assertCanStart();
     // Recorded before the child exists, so a parent that crashes right after creating it still
@@ -692,6 +702,11 @@ export class WorkflowExecution {
     }
 
     this.assertAlive();
+    for (const branch of branches.values()) {
+      if (branch.wait) {
+        this.checkWait(branch.wait);
+      }
+    }
     // Timers count from when the wait was first reached: a replay keeps their deadlines.
     const now = this.deps.clock.now();
     const reached = entry?.data as AnyData | undefined;
@@ -1123,6 +1138,7 @@ export class WorkflowExecution {
     const entry = this.journal.get(name);
     if (!entry && this.mode === 'run') {
       this.assertJournalRoom(name);
+      this.checkKey('journalName', name);
     }
     if (entry && entry.kind !== kind) {
       throw this.setFatal(
@@ -1276,6 +1292,23 @@ export class WorkflowExecution {
         '(see https://docs.nestjs.com/reliability/workflows#keep-journals-short).',
     };
     throw this.interrupt('journal-limit');
+  }
+
+  /**
+   * Throws the store's error for a key it can't hold (`WorkflowStore.checkKey()`), where the run makes the key: the
+   * run fails with it and compensates. Reaching the store, it would fail every write that carries it, and the instance
+   * would be retried at every lease, forever.
+   */
+  private checkKey(kind: WorkflowKeyKind, value: string | null | undefined): void {
+    if (typeof value === 'string') {
+      this.deps.store.checkKey?.(kind, value);
+    }
+  }
+
+  /** A wait's signal and key, registered when the instance suspends. */
+  private checkWait(wait: WorkflowWait): void {
+    this.checkKey('signal', wait.signal);
+    this.checkKey('signalKey', wait.key);
   }
 
   /** Fenced write of staged entries plus `entries`. */

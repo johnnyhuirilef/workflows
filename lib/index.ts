@@ -120,6 +120,7 @@ export type {
   WorkflowClaimRequest,
   WorkflowConcurrencyLimit,
   WorkflowInstanceDetails,
+  WorkflowKeyKind,
   WorkflowListQuery,
   WorkflowPurgeQuery,
   WorkflowPurgeResult,

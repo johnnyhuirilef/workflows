@@ -35,6 +35,7 @@ export class EncodedWorkflowStore implements WorkflowInstanceStore {
   private readonly unreadable = new Set<string>();
   readonly createInTransaction?: WorkflowStore['createInTransaction'];
   readonly signalInTransaction?: WorkflowStore['signalInTransaction'];
+  readonly checkKey?: WorkflowStore['checkKey'];
 
   constructor(
     /** The store itself: what it holds, undecoded. */
@@ -49,6 +50,10 @@ export class EncodedWorkflowStore implements WorkflowInstanceStore {
     }
     if (typeof inner.signalInTransaction === 'function') {
       this.signalInTransaction = (transaction, signal) => toPromise(andThen(this.encodeSignal(signal), (encoded) => inner.signalInTransaction!(transaction, encoded)));
+    }
+    // Keys aren't encoded: the store checks them as they are.
+    if (typeof inner.checkKey === 'function') {
+      this.checkKey = (kind, value) => inner.checkKey!(kind, value);
     }
   }
 

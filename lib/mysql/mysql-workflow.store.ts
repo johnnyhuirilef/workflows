@@ -26,6 +26,7 @@ import type {
   WorkflowClaim,
   WorkflowClaimRequest,
   WorkflowInstanceDetails,
+  WorkflowKeyKind,
   WorkflowListQuery,
   WorkflowPurgeQuery,
   WorkflowPurgeResult,
@@ -97,7 +98,9 @@ const ROWS_PER_INSERT = 1_000;
  * On MySQL:
  * - Ids, names and keys are case- and accent-sensitive, and bounded: an instance id, a workflow's or a signal's name,
  *   a signal's key or id, a concurrency or rate-limit key hold at most 255 characters, a schedule's id 230, a
- *   journal entry's name 512. A longer one fails with a `RangeError` that names it, before any SQL.
+ *   journal entry's name 512. A longer one fails with a `RangeError` that names it, before any SQL. One a run makes up
+ *   (a step's or a wait's name, `$compensate:<step>`, a child's id or keys) is thrown where the run makes it
+ *   (`checkKey()`), so the run fails and compensates, as any error it throws.
  * - The application's transactions may be REPEATABLE READ, MySQL's default. `signal(..., { transaction })` finds the
  *   instances to wake with a locking read of their waits, which sees the latest committed ones whatever the level; the
  *   signal lock is held until the application's transaction ends, as on PostgreSQL. `start(..., { transaction })`
@@ -806,8 +809,8 @@ WHERE ${p.in('id', ids)}`,
       checkSignal(write.signal);
     }
     for (const wait of write.release?.waits ?? []) {
-      checkKey("a wait's signal name", wait.signal, L.signal);
-      checkKey("a wait's signal key", wait.key, L.signalKey);
+      checkKey(KEYS.signal, wait.signal, L.signal);
+      checkKey(KEYS.signalKey, wait.key, L.signalKey);
     }
 
     return retryOnDeadlock(this.executor, async (tx) => {
@@ -857,6 +860,11 @@ WHERE ${p.in('id', ids)}`,
       }
       return true;
     });
+  }
+
+  /** What a run makes up (a step's name, a child's id...), checked by the engine before it writes or starts anything with it. */
+  checkKey(kind: WorkflowKeyKind, value: string): void {
+    checkKey(KEYS[kind], value, L[kind]);
   }
 
   // ---------------------------------------------------------------- internals
@@ -1070,6 +1078,17 @@ function checkSignal(s: NewWorkflowSignal): void {
 
 function checkEntries(entries: readonly WorkflowJournalEntry[]): void {
   for (const entry of entries) {
-    checkKey("a journal entry's name (a step's, a wait's, or the engine's, such as $child: and a child's id)", entry.name, L.journalName);
+    checkKey(KEYS.journalName, entry.name, L.journalName);
   }
 }
+
+/** How the errors of `checkKey()`, and of `write()`'s own checks, name each key. */
+const KEYS: Record<WorkflowKeyKind, string> = {
+  instanceId: 'an instance id',
+  workflow: "a workflow's name",
+  concurrencyKey: 'a concurrency key',
+  rateLimitKey: 'a rate-limit key',
+  journalName: "a journal entry's name (a step's, a wait's, or the engine's, such as $child: and a child's id)",
+  signal: "a wait's signal name",
+  signalKey: "a wait's signal key",
+};
