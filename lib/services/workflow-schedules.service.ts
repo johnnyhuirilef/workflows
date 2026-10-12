@@ -16,6 +16,7 @@ import type {
 } from '../interfaces/workflow-schedule.interface.js';
 import type { WorkflowsModuleOptions } from '../interfaces/workflows-module-options.interface.js';
 import { normalize } from '../utils/normalize.util.js';
+import { assertStorableJson } from '../utils/storable-text.util.js';
 import { scheduleSpec, type WorkflowScheduleSpec } from '../utils/schedule-spec.util.js';
 import { WORKFLOWS_MODULE_OPTIONS } from '../workflows.module-definition.js';
 import { WorkflowRegistry } from './workflow-registry.service.js';
@@ -71,6 +72,7 @@ export class WorkflowSchedules {
     } catch (error) {
       throw new TypeError(`${owner}: its input is not JSON-serializable: ${(error as Error).message}`);
     }
+    assertStorableJson(`${owner}: its input`, input);
 
     const saved = await this.engine.save(
       id,

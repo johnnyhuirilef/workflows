@@ -7,6 +7,7 @@ import { canonical } from '../core/utils/canonical.util.js';
 import type { Duration } from '../core/time/duration.js';
 import { runTimeoutMs } from './run-timeout.util.js';
 import { normalize } from './normalize.util.js';
+import { assertStorableJson, assertStorableText } from './storable-text.util.js';
 
 export interface NewInstanceOptions {
   caller: string;
@@ -26,11 +27,17 @@ export function newInstance(workflow: WorkflowMetadata, id: unknown, input: unkn
   if (typeof id !== 'string' || id.length === 0) {
     throw new TypeError(`Invalid workflow instance id ${JSON.stringify(id)}. Use a non-empty string, such as \`order-\${orderId}\`.`);
   }
+  assertStorableText('An instance id', id);
   if (options.priority !== undefined) {
     assertPriority(options.priority, options.caller);
   }
 
   const json = normalize(input);
+  assertStorableJson('Input', json);
+  const concurrencyKey = keyOf(workflow, json, options.caller, 'concurrency', options.concurrencyKey);
+  assertStorableText('A concurrency key', concurrencyKey);
+  const rateLimitKey = keyOf(workflow, json, options.caller, 'rateLimit', options.rateLimitKey);
+  assertStorableText('A rate-limit key', rateLimitKey);
   const timeoutMs = options.timeout === undefined ? workflow.timeout : runTimeoutMs(options.timeout, options.caller);
   return {
     id,
@@ -40,8 +47,8 @@ export function newInstance(workflow: WorkflowMetadata, id: unknown, input: unkn
     deadline: timeoutMs === undefined ? null : options.now + timeoutMs,
     parentId: options.parentId ?? null,
     parentClose: options.parentClose ?? null,
-    concurrencyKey: keyOf(workflow, json, options.caller, 'concurrency', options.concurrencyKey),
-    rateLimitKey: keyOf(workflow, json, options.caller, 'rateLimit', options.rateLimitKey),
+    concurrencyKey,
+    rateLimitKey,
     priority: options.priority ?? 0,
     scheduleId: options.scheduleId ?? null,
     scheduledAt: options.scheduledAt ?? null,

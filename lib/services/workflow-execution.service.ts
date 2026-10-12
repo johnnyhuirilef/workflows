@@ -17,6 +17,7 @@ import {
   type InterruptReason,
 } from '../errors/workflow-interrupt.error.js';
 import { serializeError } from '../utils/serialize-error.util.js';
+import { assertStorableJson, assertStorableText, unstorableJson } from '../utils/storable-text.util.js';
 import { runInStepScope } from '../utils/step-scope.util.js';
 import type { SerializedWorkflowError } from '../interfaces/serialized-workflow-error.interface.js';
 import type {
@@ -597,6 +598,7 @@ export class WorkflowExecution {
     this.childCounters.set(resolved.name, n);
     const id = options.id ?? `${this.instance.id}/${resolved.name}#${n}`;
 
+    assertStorableText("A child's id", id);
     // The journal first: a replay returns the child it started, whatever the keys of its workflow's limits
     // compute today (a deploy may change them); they are computed only to start it.
     const name = `$child:${id}`;
@@ -821,7 +823,10 @@ export class WorkflowExecution {
           'return large data from the workflow, or keep it in your own tables.',
       );
     }
-    this.customStatus = json === undefined ? null : JSON.parse(json);
+    // Before it is kept: the write of a failing run carries the last status that was set.
+    const parsed = json === undefined ? null : JSON.parse(json);
+    assertStorableJson('ctx.setStatus() value', parsed);
+    this.customStatus = parsed;
   }
 
   /** `{ customStatus }` when `ctx.setStatus()` changed it since it was last written, else `{}`: spread into a write. */
@@ -935,6 +940,11 @@ export class WorkflowExecution {
         value = normalize(raw) as T;
       } catch (error) {
         throw new NonRetryableStepError(`Result of "${name}" is not JSON-serializable: ${(error as Error).message}`);
+      }
+      // Like the above, the same result every time: the store would refuse it at every attempt.
+      const unstorable = unstorableJson(`Result of "${name}"`, value);
+      if (unstorable) {
+        throw new NonRetryableStepError(unstorable.message);
       }
     } catch (error) {
       if (this.abort.signal.aborted) {
@@ -1050,7 +1060,9 @@ export class WorkflowExecution {
           return;
         }
 
-        current = { ...current, progress: normalize(progress) };
+        const json = normalize(progress);
+        assertStorableJson('Step progress', json);
+        current = { ...current, progress: json };
         update(current);
         await this.write([current]);
       },
@@ -1139,6 +1151,7 @@ export class WorkflowExecution {
     if (!entry && this.mode === 'run') {
       this.assertJournalRoom(name);
       this.checkKey('journalName', name);
+      assertStorableText("A journal entry's name (a step's, a sleep's or a wait's)", name);
     }
     if (entry && entry.kind !== kind) {
       throw this.setFatal(
@@ -1309,6 +1322,8 @@ export class WorkflowExecution {
   private checkWait(wait: WorkflowWait): void {
     this.checkKey('signal', wait.signal);
     this.checkKey('signalKey', wait.key);
+    assertStorableText("A wait's signal name", wait.signal);
+    assertStorableText("A wait's signal key", wait.key);
   }
 
   /** Fenced write of staged entries plus `entries`. */

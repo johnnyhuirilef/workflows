@@ -19,6 +19,7 @@ import { signalName, type WorkflowSignal } from '../signals/workflow.signal.js';
 import type { EncodedWorkflowStore } from '../storage/encoded-workflow.store.js';
 import { ENGINE_STORE, WorkflowStorage } from '../storage/workflow.storage.js';
 import { stepSignalId, stepStartId } from '../utils/step-scope.util.js';
+import { assertStorableJson, assertStorableText } from '../utils/storable-text.util.js';
 import type { WorkflowInstanceDetails, WorkflowPurgeResult, WorkflowStore } from '../interfaces/workflow-store.interface.js';
 import { WorkflowRegistry } from './workflow-registry.service.js';
 import { WorkflowSchedules } from './workflow-schedules.service.js';
@@ -102,7 +103,10 @@ export class WorkflowClient implements BeforeApplicationShutdown {
    * with a different workflow or input. With `transaction`, the instance is
    * created in your transaction and commits or rolls back with it. Inside a
    * workflow step, a start without an `id` gets one derived from the step, so a
-   * retried step gets its instance back instead of starting another.
+   * retried step gets its instance back instead of starting another. An id, a
+   * key or an input string with U+0000 or a lone UTF-16 surrogate is refused
+   * with a `TypeError`, on every store: PostgreSQL can't store either, and
+   * MySQL can't store a lone surrogate.
    */
   async start<W>(workflow: Type<W> | string, input: WorkflowInput<W>, options: StartWorkflowOptions = {}): Promise<WorkflowStartResult> {
     const resolved = this.registry.resolve(workflow as Type<unknown> | string, options.version);
@@ -265,6 +269,7 @@ export class WorkflowClient implements BeforeApplicationShutdown {
   }
 
   private async stop(id: string, reason: string | undefined, terminate: boolean): Promise<WorkflowCancelResult> {
+    assertStorableText('Reason', reason);
     const accepted = await this.store.requestCancel(id, { reason: reason ?? null, now: this.clock.now(), terminate });
     // Accepted is accepted: an instance whose payloads no codec can read any more is returned as stored.
     const details = await this.store.get(id).catch(() => this.store.inner.get(id));
@@ -288,6 +293,8 @@ export class WorkflowClient implements BeforeApplicationShutdown {
    * instances parked on a matching wait right now. With `transaction`, the
    * signal and the wake-ups commit or roll back with your transaction. With
    * `id`, or from inside a workflow step, a repeated signal is stored once.
+   * A name, key, id or payload string with U+0000 or a lone UTF-16 surrogate is
+   * refused with a `TypeError`, on every store.
    */
   async signal<T>(
     signal: WorkflowSignal<T> | string,
@@ -301,7 +308,12 @@ export class WorkflowClient implements BeforeApplicationShutdown {
     }
 
     const dedupeId = options.id ?? stepSignalId(name, key) ?? null;
-    const data = { name, key, dedupeId, payload: normalize(payload), now: this.clock.now() };
+    assertStorableText('A signal name', name);
+    assertStorableText('A signal key', key);
+    assertStorableText('A signal id', dedupeId);
+    const json = normalize(payload);
+    assertStorableJson('Signal payload', json);
+    const data = { name, key, dedupeId, payload: json, now: this.clock.now() };
     // Nothing is awaited before the store's call, as in start().
     const result = await (options.transaction === undefined
       ? this.store.signal(data)
