@@ -9,10 +9,11 @@ import type { SerializedWorkflowError } from '../interfaces/serialized-workflow-
 export function serializeError(error: unknown): SerializedWorkflowError {
   if (error instanceof Error) {
     // Strings, as the record promises: a name or stack that isn't one is described, not thrown on.
+    const stack = stackOf(error);
     return {
       name: text(error.name || 'Error'),
       message: text(error.message),
-      ...(error.stack === undefined ? {} : { stack: text(error.stack) }),
+      ...(stack === undefined ? {} : { stack }),
     };
   }
   if (typeof error === 'string') {
@@ -35,5 +36,14 @@ function text(value: unknown): string {
     return String(value);
   } catch {
     return inspect(value, { depth: 3, breakLength: Infinity });
+  }
+}
+
+/** The error's stack, or `undefined`: V8 formats it on first read from the error's name, and throws if it can't. */
+function stackOf(error: Error): string | undefined {
+  try {
+    return error.stack === undefined ? undefined : text(error.stack);
+  } catch {
+    return undefined;
   }
 }
