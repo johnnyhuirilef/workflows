@@ -34,11 +34,11 @@ export function newInstance(workflow: WorkflowMetadata, id: unknown, input: unkn
 
   const json = normalize(input);
   assertStorableJson('Input', json);
+  const timeoutMs = options.timeout === undefined ? workflow.timeout : runTimeoutMs(options.timeout, options.caller);
   const concurrencyKey = keyOf(workflow, json, options.caller, 'concurrency', options.concurrencyKey);
   assertStorableText('A concurrency key', concurrencyKey);
   const rateLimitKey = keyOf(workflow, json, options.caller, 'rateLimit', options.rateLimitKey);
   assertStorableText('A rate-limit key', rateLimitKey);
-  const timeoutMs = options.timeout === undefined ? workflow.timeout : runTimeoutMs(options.timeout, options.caller);
   return {
     id,
     workflow: workflow.name,

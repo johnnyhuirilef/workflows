@@ -21,9 +21,9 @@ function describe(error: unknown): SerializedWorkflowError {
   if (error instanceof Error) {
     // Strings, as the record promises: a name or stack that isn't one is described, not thrown on.
     return {
-      name: String(error.name || 'Error'),
-      message: String(error.message),
-      ...(error.stack === undefined ? {} : { stack: String(error.stack) }),
+      name: text(error.name || 'Error'),
+      message: text(error.message),
+      ...(error.stack === undefined ? {} : { stack: text(error.stack) }),
     };
   }
   if (typeof error === 'string') {
@@ -38,4 +38,13 @@ function describe(error: unknown): SerializedWorkflowError {
   }
 
   return { name: 'Error', message: message ?? inspect(error, { depth: 3, breakLength: Infinity }) };
+}
+
+/** `String(value)`, or `util.inspect()` for a value `String()` throws on (no prototype, a throwing `toString()`). */
+function text(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    return inspect(value, { depth: 3, breakLength: Infinity });
+  }
 }

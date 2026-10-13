@@ -38,6 +38,8 @@ describe('serializeError()', () => {
     expect(serializeError(odd)).toEqual({ name: '42', message: 'x', stack: '123' });
     const bare = Object.assign(new Error('y'), { stack: undefined });
     expect(serializeError(bare)).toEqual({ name: 'Error', message: 'y' });
+    const unprintable = Object.assign(new Error('z'), { name: Object.create(null) as string });
+    expect(serializeError(unprintable)).toMatchObject({ name: '[Object: null prototype] {}', message: 'z' });
   });
 
   it('returns well-formed text for the lone surrogate in the message of a JSON.parse error (V8 names the first half of the emoji)', () => {

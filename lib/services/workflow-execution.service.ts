@@ -598,10 +598,13 @@ export class WorkflowExecution {
     this.childCounters.set(resolved.name, n);
     const id = options.id ?? `${this.instance.id}/${resolved.name}#${n}`;
 
-    assertStorableText("A child's id", id);
     // The journal first: a replay returns the child it started, whatever the keys of its workflow's limits
     // compute today (a deploy may change them); they are computed only to start it.
     const name = `$child:${id}`;
+    // Only for a child this run starts, as visit() checks names: a replay returns the one a store already kept.
+    if (this.mode === 'run' && !this.journal.has(name)) {
+      assertStorableText("A child's id", id);
+    }
     this.visit(name, 'child', true);
     const request: ChildRequest = { id, workflow: resolved.name, input: createHash('sha256').update(canonical(normalize(input) ?? null)).digest('base64url') };
     const entry = this.journal.get(name);
