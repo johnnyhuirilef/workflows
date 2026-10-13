@@ -36,8 +36,10 @@ import type {
   WorkflowSignalRecord,
   WorkflowSignalResult,
   WorkflowStore,
+  WorkflowTextColumn,
   WorkflowWrite,
 } from '../interfaces/workflow-store.interface.js';
+import { loneSurrogateIn, nulIn } from '../utils/storable-text.util.js';
 import { RateWindowClaim, type PickedInstance } from '../sql/rate-windows.js';
 import { CANCELLABLE_STATUSES, INSTANCE_COLUMNS, RUNNABLE_STATUSES, SCHEDULE_COLUMNS, toInstance, toSchedule, type Row } from '../sql/workflow-rows.js';
 import type { WorkflowStorage } from '../storage/workflow.storage.js';
@@ -72,6 +74,9 @@ const CANCELLABLE = `(${CANCELLABLE_STATUSES.map((status) => `'${status}'`).join
  *
  * Given `storage`, it registers itself (`storage.registerSource(this)`), as every store does. It checks its schema,
  * or migrates it (`migrate`), in `onModuleInit` (so before the worker starts), or at its first call outside Nest.
+ *
+ * PostgreSQL keeps U+0000 in neither `text` nor `jsonb`, nor a lone UTF-16 surrogate in `jsonb` (`unstorableText()`):
+ * the engine refuses them with a `TypeError` where the application or a run gives them, unless a codec encodes them.
  */
 export class PostgresWorkflowStore implements WorkflowStore, OnModuleInit {
   /**
@@ -662,6 +667,11 @@ RETURNING cancel_requested::text AS cancel_requested, terminate_requested::text 
       }
       return true;
     }, READ_COMMITTED);
+  }
+
+  /** U+0000 anywhere, and a lone surrogate in JSON: what the engine refuses before it writes (see the class). */
+  unstorableText(text: string, column: WorkflowTextColumn): string | undefined {
+    return nulIn(text) ?? (column === 'json' ? loneSurrogateIn(text) : undefined);
   }
 
   // ---------------------------------------------------------------- internals

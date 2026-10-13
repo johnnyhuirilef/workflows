@@ -4,20 +4,9 @@ import type { SerializedWorkflowError } from '../interfaces/serialized-workflow-
 /**
  * Never throws: a thrown value the engine can't serialize (a circular object, a
  * BigInt, `undefined`) is described by `util.inspect()` instead, so the instance
- * still records an outcome. The text has no U+0000 and no lone surrogate (each
- * becomes U+FFFD): an error is what the instance records, and a store that can't
- * keep its text would fail the write that records it, again at every lease.
+ * still records an outcome.
  */
 export function serializeError(error: unknown): SerializedWorkflowError {
-  const { name, message, stack } = describe(error);
-  return { name: clean(name), message: clean(message), ...(stack === undefined ? {} : { stack: clean(stack) }) };
-}
-
-function clean(text: string): string {
-  return text.replaceAll('\u0000', '\uFFFD').toWellFormed();
-}
-
-function describe(error: unknown): SerializedWorkflowError {
   if (error instanceof Error) {
     // Strings, as the record promises: a name or stack that isn't one is described, not thrown on.
     return {

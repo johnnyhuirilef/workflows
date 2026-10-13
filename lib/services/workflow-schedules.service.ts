@@ -72,7 +72,7 @@ export class WorkflowSchedules {
     } catch (error) {
       throw new TypeError(`${owner}: its input is not JSON-serializable: ${(error as Error).message}`);
     }
-    assertStorableJson(`${owner}: its input`, input);
+    assertStorableJson(`${owner}: its input`, input, this.scheduler.textCheck('payload'));
 
     const saved = await this.engine.save(
       id,

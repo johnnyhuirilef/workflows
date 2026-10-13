@@ -7,7 +7,7 @@ import { canonical } from '../core/utils/canonical.util.js';
 import type { Duration } from '../core/time/duration.js';
 import { runTimeoutMs } from './run-timeout.util.js';
 import { normalize } from './normalize.util.js';
-import { assertStorableJson, assertStorableText } from './storable-text.util.js';
+import { assertStorableJson, assertStorableText, type TextChecks } from './storable-text.util.js';
 
 export interface NewInstanceOptions {
   caller: string;
@@ -20,6 +20,8 @@ export interface NewInstanceOptions {
   parentClose?: WorkflowParentClose;
   scheduleId?: string;
   scheduledAt?: number;
+  /** The store's checks of text (`EncodedWorkflowStore.textCheck`): what it can't keep is refused before it is asked to. */
+  text: TextChecks;
 }
 
 /** What `WorkflowClient.start()` and `ctx.startChild()` ask the store to create. */
@@ -27,18 +29,18 @@ export function newInstance(workflow: WorkflowMetadata, id: unknown, input: unkn
   if (typeof id !== 'string' || id.length === 0) {
     throw new TypeError(`Invalid workflow instance id ${JSON.stringify(id)}. Use a non-empty string, such as \`order-\${orderId}\`.`);
   }
-  assertStorableText('An instance id', id);
+  assertStorableText('An instance id', id, options.text('key'));
   if (options.priority !== undefined) {
     assertPriority(options.priority, options.caller);
   }
 
   const json = normalize(input);
-  assertStorableJson('Input', json);
+  assertStorableJson('Input', json, options.text('payload'));
   const timeoutMs = options.timeout === undefined ? workflow.timeout : runTimeoutMs(options.timeout, options.caller);
   const concurrencyKey = keyOf(workflow, json, options.caller, 'concurrency', options.concurrencyKey);
-  assertStorableText('A concurrency key', concurrencyKey);
+  assertStorableText('A concurrency key', concurrencyKey, options.text('key'));
   const rateLimitKey = keyOf(workflow, json, options.caller, 'rateLimit', options.rateLimitKey);
-  assertStorableText('A rate-limit key', rateLimitKey);
+  assertStorableText('A rate-limit key', rateLimitKey, options.text('key'));
   return {
     id,
     workflow: workflow.name,

@@ -2,7 +2,6 @@ import { applyDecorators, Injectable, SetMetadata } from '@nestjs/common';
 import { resolveConcurrency, resolveRateLimit } from '../core/limits/limits.js';
 import { runTimeoutMs } from '../utils/run-timeout.util.js';
 import { normalize } from '../utils/normalize.util.js';
-import { assertStorableJson } from '../utils/storable-text.util.js';
 import { assertScheduleId } from '../core/scheduling/schedule-spec.js';
 import { scheduleSpec } from '../utils/schedule-spec.util.js';
 import { WORKFLOW_METADATA } from '../workflows.constants.js';
@@ -54,7 +53,6 @@ function schedulesOf(name: string, schedules: WorkflowScheduleDeclaration[]): Wo
       } catch (error) {
         throw new TypeError(`${owner}: its input is not JSON-serializable: ${(error as Error).message}`);
       }
-      assertStorableJson(`${owner}: its input`, input);
     }
     return { id, spec: scheduleSpec(owner, declaration, { version: null, inputFn }), input };
   });

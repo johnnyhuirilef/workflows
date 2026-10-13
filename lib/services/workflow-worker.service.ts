@@ -103,6 +103,7 @@ export class WorkflowWorker implements OnApplicationBootstrap, OnModuleDestroy, 
       get store() {
         return storage[ENGINE_STORE];
       },
+      textCheck: (place) => storage[ENGINE_STORE].textCheck(place),
       resolve: (workflow, version) => registry.resolve(workflow, version),
       createChild: async (child) => {
         const { instance, created } = await storage[ENGINE_STORE].create(child);
@@ -338,7 +339,7 @@ export class WorkflowWorker implements OnApplicationBootstrap, OnModuleDestroy, 
       let output: unknown;
       try {
         output = normalize(outcome.value);
-        assertStorableJson('Workflow output', output);
+        assertStorableJson('Workflow output', output, this.store.textCheck('payload'));
       } catch (error) {
         return this.compensate(exec, instance, serializeError(error), false);
       }

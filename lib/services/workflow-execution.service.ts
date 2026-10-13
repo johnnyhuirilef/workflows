@@ -17,7 +17,7 @@ import {
   type InterruptReason,
 } from '../errors/workflow-interrupt.error.js';
 import { serializeError } from '../utils/serialize-error.util.js';
-import { assertStorableJson, assertStorableText, unstorableJson } from '../utils/storable-text.util.js';
+import { assertStorableJson, assertStorableText, unstorableJson, type TextChecks } from '../utils/storable-text.util.js';
 import { runInStepScope } from '../utils/step-scope.util.js';
 import type { SerializedWorkflowError } from '../interfaces/serialized-workflow-error.interface.js';
 import type {
@@ -82,6 +82,8 @@ type RetrySetting = number | false | WorkflowRetryOptions | undefined;
 
 export interface ExecutionDeps {
   store: WorkflowInstanceStore;
+  /** What the store can't keep of a text at a place (`EncodedWorkflowStore.textCheck`), refused where the run makes it. */
+  textCheck: TextChecks;
   /** The workflow `ctx.startChild()` starts: its name, version and run timeout (`WorkflowRegistry.resolve()`). */
   resolve(workflow: Type<unknown> | string, version?: number): WorkflowMetadata;
   /**
@@ -603,7 +605,7 @@ export class WorkflowExecution {
     const name = `$child:${id}`;
     // Only for a child this run starts, as visit() checks names: a replay returns the one a store already kept.
     if (this.mode === 'run' && !this.journal.has(name)) {
-      assertStorableText("A child's id", id);
+      assertStorableText("A child's id", id, this.deps.textCheck('name'));
     }
     this.visit(name, 'child', true);
     const request: ChildRequest = { id, workflow: resolved.name, input: createHash('sha256').update(canonical(normalize(input) ?? null)).digest('base64url') };
@@ -639,6 +641,7 @@ export class WorkflowExecution {
       priority: options.priority ?? this.instance.priority,
       parentId: this.instance.id,
       parentClose,
+      text: this.deps.textCheck,
     });
     this.checkKey('instanceId', child.id);
     this.checkKey('workflow', child.workflow);
@@ -707,7 +710,10 @@ export class WorkflowExecution {
     }
 
     this.assertAlive();
-    for (const branch of branches.values()) {
+    const branchNames = this.deps.textCheck('payload');
+    for (const [key, branch] of branches) {
+      // The entry's data holds the branches by name.
+      assertStorableText(`A waitForAny("${name}") branch's name`, key, branchNames);
       if (branch.wait) {
         this.checkWait(branch.wait);
       }
@@ -828,7 +834,7 @@ export class WorkflowExecution {
     }
     // Before it is kept: the write of a failing run carries the last status that was set.
     const parsed = json === undefined ? null : JSON.parse(json);
-    assertStorableJson('ctx.setStatus() value', parsed);
+    assertStorableJson('ctx.setStatus() value', parsed, this.deps.textCheck('payload'));
     this.customStatus = parsed;
   }
 
@@ -945,7 +951,7 @@ export class WorkflowExecution {
         throw new NonRetryableStepError(`Result of "${name}" is not JSON-serializable: ${(error as Error).message}`);
       }
       // Like the above, the same result every time: the store would refuse it at every attempt.
-      const unstorable = unstorableJson(`Result of "${name}"`, value);
+      const unstorable = unstorableJson(`Result of "${name}"`, value, this.deps.textCheck('payload'));
       if (unstorable) {
         throw new NonRetryableStepError(unstorable.message);
       }
@@ -1064,7 +1070,7 @@ export class WorkflowExecution {
         }
 
         const json = normalize(progress);
-        assertStorableJson('Step progress', json);
+        assertStorableJson('Step progress', json, this.deps.textCheck('payload'));
         current = { ...current, progress: json };
         update(current);
         await this.write([current]);
@@ -1154,7 +1160,7 @@ export class WorkflowExecution {
     if (!entry && this.mode === 'run') {
       this.assertJournalRoom(name);
       this.checkKey('journalName', name);
-      assertStorableText("A journal entry's name (a step's, a sleep's or a wait's)", name);
+      assertStorableText("A journal entry's name (a step's, a sleep's or a wait's)", name, this.deps.textCheck('name'));
     }
     if (entry && entry.kind !== kind) {
       throw this.setFatal(
@@ -1325,8 +1331,11 @@ export class WorkflowExecution {
   private checkWait(wait: WorkflowWait): void {
     this.checkKey('signal', wait.signal);
     this.checkKey('signalKey', wait.key);
-    assertStorableText("A wait's signal name", wait.signal);
-    assertStorableText("A wait's signal key", wait.key);
+    // In the waits' own columns, and in the journal entry's data.
+    for (const check of [this.deps.textCheck('key'), this.deps.textCheck('payload')]) {
+      assertStorableText("A wait's signal name", wait.signal, check);
+      assertStorableText("A wait's signal key", wait.key, check);
+    }
   }
 
   /** Fenced write of staged entries plus `entries`. */
