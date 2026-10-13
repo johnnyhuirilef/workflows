@@ -3,6 +3,8 @@ import type { WorkflowPayloadContext } from '../interfaces/workflow-payload-code
 import { isEncodedPayload as encoded, type PayloadCodecs } from '../core/codecs/payload-codecs.js';
 import { andThen, toPromise, type Maybe } from '../core/utils/maybe.util.js';
 import type { WorkflowScheduleMethods } from '../utils/schedule-store.util.js';
+import { storableText, type TextCheck, type TextPlace } from '../utils/storable-text.util.js';
+import type { SerializedWorkflowError } from '../interfaces/serialized-workflow-error.interface.js';
 import type { WorkflowInstance, WorkflowJournalEntry, WorkflowStatus } from '../interfaces/workflow-instance.interface.js';
 import type {
   NewWorkflowInstance,
@@ -19,6 +21,7 @@ import type {
   WorkflowSignalRecord,
   WorkflowSignalResult,
   WorkflowStore,
+  WorkflowTextColumn,
   WorkflowWrite,
 } from '../interfaces/workflow-store.interface.js';
 
@@ -62,6 +65,19 @@ export class EncodedWorkflowStore implements WorkflowInstanceStore {
     return this.codecs.encodes;
   }
 
+  /**
+   * What the store can't keep of a text at `place` (`WorkflowStore.unstorableText()`), or `undefined` where it keeps
+   * any: a store without the method, and a payload or a cancel reason a codec encodes, which the store sees encoded.
+   */
+  readonly textCheck = (place: TextPlace): TextCheck | undefined => {
+    const inner = this.inner;
+    if (typeof inner.unstorableText !== 'function' || (this.encodes && (place === 'payload' || place === 'cancelReason'))) {
+      return undefined;
+    }
+    const column: WorkflowTextColumn = place === 'payload' || place === 'name' ? 'json' : 'text';
+    return (text) => inner.unstorableText!(text, column);
+  };
+
   create(instance: NewWorkflowInstance) {
     return this.instanceOf(andThen(this.encodeNew(instance), (encoded) => this.inner.create(encoded)));
   }
@@ -89,7 +105,10 @@ export class EncodedWorkflowStore implements WorkflowInstanceStore {
   }
 
   async reopen(id: string, reopen: WorkflowReopen): Promise<boolean> {
-    const [error, entries] = await Promise.all([this.codecs.encodeError(reopen.error, { field: 'error', instanceId: id }), this.encodeEntries(reopen.entries, id)]);
+    const [error, entries] = await Promise.all([
+      this.codecs.encodeError(this.storableError(reopen.error), { field: 'error', instanceId: id }),
+      this.encodeEntries(reopen.entries, id),
+    ]);
     return this.inner.reopen(id, { ...reopen, error, entries });
   }
 
@@ -142,7 +161,7 @@ export class EncodedWorkflowStore implements WorkflowInstanceStore {
     const [entries, output, error, customStatus, signal] = await Promise.all([
       this.encodeEntries(write.entries, id),
       this.codecs.encode(write.output, context('output')),
-      this.codecs.encodeError(write.error, context('error')),
+      this.codecs.encodeError(this.storableError(write.error), context('error')),
       this.codecs.encode(write.customStatus, context('customStatus')),
       write.signal ? this.encodeSignal(write.signal) : undefined,
     ]);
@@ -157,6 +176,27 @@ export class EncodedWorkflowStore implements WorkflowInstanceStore {
   }
 
   // ---------------------------------------------------------------- payloads
+
+  /**
+   * `error` with what the store can't keep in its text replaced with U+FFFD (`storableText()`), as an error is recorded
+   * whatever it holds: its name, and its message and stack unless a codec encodes them.
+   */
+  private storableError<E extends SerializedWorkflowError | null | undefined>(error: E): E {
+    const check = this.textCheck('name');
+    if (!check || error === null || error === undefined) {
+      return error;
+    }
+
+    const text = <T>(value: T): T => (typeof value !== 'string' || this.encodes ? value : (storableText(value, check) as T));
+    const { compensation } = error;
+    return {
+      ...error,
+      name: typeof error.name === 'string' ? storableText(error.name, check) : error.name,
+      message: text(error.message),
+      ...(error.stack === undefined ? {} : { stack: text(error.stack) }),
+      ...(compensation === undefined ? {} : { compensation: this.storableError(compensation) }),
+    } as E;
+  }
 
   private encodeNew(instance: NewWorkflowInstance): Maybe<NewWorkflowInstance> {
     return andThen(this.codecs.encode(instance.input, { field: 'input', instanceId: instance.id }), (input) => ({ ...instance, input }));
@@ -174,7 +214,7 @@ export class EncodedWorkflowStore implements WorkflowInstanceStore {
           this.codecs.encode(entry.result, context('result')),
           this.codecs.encode(entry.progress, context('progress')),
           this.codecs.encode(entry.data, context('data')),
-          this.codecs.encodeError(entry.error, context('error')),
+          this.codecs.encodeError(this.storableError(entry.error), context('error')),
         ]);
         return { ...entry, result, progress, data, error };
       }),

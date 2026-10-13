@@ -13,6 +13,7 @@ import type { WorkflowClock } from '../interfaces/workflow-clock.interface.js';
 import { WorkflowNonDeterminismError } from '../errors/workflow-non-determinism.error.js';
 import { isWorkflowInterrupt } from '../errors/workflow-interrupt.error.js';
 import { serializeError } from '../utils/serialize-error.util.js';
+import { assertStorableJson } from '../utils/storable-text.util.js';
 import type { SerializedWorkflowError } from '../interfaces/serialized-workflow-error.interface.js';
 import { resolveRetry } from '../core/retries/retry.js';
 import { resolveJournalLimits } from '../utils/journal-limits.util.js';
@@ -102,6 +103,7 @@ export class WorkflowWorker implements OnApplicationBootstrap, OnModuleDestroy, 
       get store() {
         return storage[ENGINE_STORE];
       },
+      textCheck: (place) => storage[ENGINE_STORE].textCheck(place),
       resolve: (workflow, version) => registry.resolve(workflow, version),
       createChild: async (child) => {
         const { instance, created } = await storage[ENGINE_STORE].create(child);
@@ -337,6 +339,7 @@ export class WorkflowWorker implements OnApplicationBootstrap, OnModuleDestroy, 
       let output: unknown;
       try {
         output = normalize(outcome.value);
+        assertStorableJson('Workflow output', output, this.store.textCheck('payload'));
       } catch (error) {
         return this.compensate(exec, instance, serializeError(error), false);
       }

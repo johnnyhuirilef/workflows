@@ -5,3 +5,4 @@ export * from './step-scope.util.js';
 export * from './journal-limits.util.js';
 export * from './new-instance.util.js';
 export * from './normalize.util.js';
+export * from './storable-text.util.js';

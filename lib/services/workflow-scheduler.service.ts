@@ -14,6 +14,7 @@ import type { WorkflowsModuleOptions } from '../interfaces/workflows-module-opti
 import type { EncodedWorkflowStore } from '../storage/encoded-workflow.store.js';
 import { ENGINE_STORE, PAYLOAD_CODECS, WorkflowStorage } from '../storage/workflow.storage.js';
 import { newInstance } from '../utils/new-instance.util.js';
+import { unstorableJson, type TextCheck, type TextPlace } from '../utils/storable-text.util.js';
 import type { WorkflowScheduleSpec } from '../utils/schedule-spec.util.js';
 import { workflowScheduleStore } from '../utils/schedule-store.util.js';
 import { WORKFLOWS_MODULE_OPTIONS } from '../workflows.module-definition.js';
@@ -66,6 +67,11 @@ export class WorkflowScheduler implements OnApplicationBootstrap {
     return this.storage[ENGINE_STORE];
   }
 
+  /** What the store can't keep of a text at `place` (`EncodedWorkflowStore.textCheck`), for `WorkflowSchedules`. */
+  textCheck(place: TextPlace): TextCheck | undefined {
+    return this.store.textCheck(place);
+  }
+
   async onApplicationBootstrap(): Promise<void> {
     // A definition error (an id two workflows declare) fails the startup; the store's errors don't.
     this.registry.schedules();
@@ -112,6 +118,7 @@ export class WorkflowScheduler implements OnApplicationBootstrap {
         priority: spec.priority === 0 ? undefined : spec.priority,
         scheduleId: record.id,
         scheduledAt: at,
+        text: this.store.textCheck,
       });
     } catch (error) {
       if (rethrow) {
@@ -165,12 +172,26 @@ export class WorkflowScheduler implements OnApplicationBootstrap {
   /** The schedules the workflows this process runs declare (each name's highest registered version's), for the `Scheduler`. */
   private declared(): Map<string, DeclaredSchedule<WorkflowScheduleSpec>> {
     this.declarations ??= new Map(
-      [...this.registry.schedules()].map(([id, schedule]) => [
-        id,
-        { id, target: schedule.workflow, version: this.registry.latest(schedule.workflow)!.version, spec: schedule.spec, payload: schedule.input },
-      ]),
+      [...this.registry.schedules()]
+        .filter(([id, schedule]) => this.storable(id, schedule.input))
+        .map(([id, schedule]) => [
+          id,
+          { id, target: schedule.workflow, version: this.registry.latest(schedule.workflow)!.version, spec: schedule.spec, payload: schedule.input },
+        ]),
     );
     return this.declarations;
+  }
+
+  /**
+   * Whether the store can keep a declared schedule's input (`WorkflowStore.unstorableText()`). One it can't is left out,
+   * logged, instead of failing every reconciliation of the others; an input the schedule computes is checked as it starts.
+   */
+  private storable(id: string, input: unknown): boolean {
+    const refused = typeof input === 'function' ? undefined : unstorableJson(`Schedule "${id}": its input`, input, this.store.textCheck('payload'));
+    if (refused) {
+      this.logger.error(`${refused.message} The schedule isn't saved, and doesn't start its workflow.`);
+    }
+    return !refused;
   }
 
   private async fire({ schedule, spec, declared, at, now }: DueOccurrence<WorkflowScheduleSpec>): Promise<{ created: boolean } | null> {

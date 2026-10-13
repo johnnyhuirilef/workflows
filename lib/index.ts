@@ -138,6 +138,7 @@ export type {
   WorkflowSignalResult,
   WorkflowStorageRegisterOptions,
   WorkflowStore,
+  WorkflowTextColumn,
   WorkflowWrite,
 } from './interfaces/index.js';
 export * from './stores/index.js';

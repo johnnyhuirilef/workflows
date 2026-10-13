@@ -40,8 +40,10 @@ import type {
   WorkflowSignalRecord,
   WorkflowSignalResult,
   WorkflowStore,
+  WorkflowTextColumn,
   WorkflowWrite,
 } from '../interfaces/workflow-store.interface.js';
+import { loneSurrogateIn } from '../utils/storable-text.util.js';
 import { RateWindowClaim, type PickedInstance } from '../sql/rate-windows.js';
 import { CANCELLABLE_STATUSES, INSTANCE_COLUMNS, RUNNABLE_STATUSES, SCHEDULE_COLUMNS, SIGNAL_COLUMNS, toInstance, toSchedule, type Row } from '../sql/workflow-rows.js';
 import type { WorkflowStorage } from '../storage/workflow.storage.js';
@@ -101,6 +103,8 @@ const ROWS_PER_INSERT = 1_000;
  *   journal entry's name 512. A longer one fails with a `RangeError` that names it, before any SQL. One a run makes up
  *   (a step's or a wait's name, `$compensate:<step>`, a child's id or keys) is thrown where the run makes it
  *   (`checkKey()`), so the run fails and compensates, as any error it throws.
+ * - JSON can't hold a lone UTF-16 surrogate (`unstorableText()`): the engine refuses one in an input, a payload, a
+ *   result or a step's name with a `TypeError` where the application or the run gives it, unless a codec encodes it.
  * - The application's transactions may be REPEATABLE READ, MySQL's default. `signal(..., { transaction })` finds the
  *   instances to wake with a locking read of their waits, which sees the latest committed ones whatever the level; the
  *   signal lock is held until the application's transaction ends, as on PostgreSQL. `start(..., { transaction })`
@@ -865,6 +869,11 @@ WHERE ${p.in('id', ids)}`,
   /** What a run makes up (a step's name, a child's id...), checked by the engine before it writes or starts anything with it. */
   checkKey(kind: WorkflowKeyKind, value: string): void {
     checkKey(KEYS[kind], value, L[kind]);
+  }
+
+  /** A lone surrogate in JSON: what the engine refuses before it writes (see the class). */
+  unstorableText(text: string, column: WorkflowTextColumn): string | undefined {
+    return column === 'json' ? loneSurrogateIn(text) : undefined;
   }
 
   // ---------------------------------------------------------------- internals

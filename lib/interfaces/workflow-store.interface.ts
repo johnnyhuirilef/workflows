@@ -223,10 +223,25 @@ export interface WorkflowStore {
    * store's own check in `write()` or `create()` is all there is, and the instance is retried as after any store error.
    */
   checkKey?(kind: WorkflowKeyKind, value: string): void;
+  /**
+   * Optional, for a store that can't keep some text (PostgreSQL can't keep U+0000, and neither PostgreSQL nor MySQL a
+   * lone UTF-16 surrogate in JSON): what `text` holds that the store can't keep in a `column`, such as `'U+0000'`, or
+   * `undefined`. `'json'` is text inside a JSON value (an input, a result, a payload, a journal entry, which holds its
+   * name); `'text'` is an id, a name, a key or a cancel reason in a column of its own. The engine asks before it stores
+   * what the application gives or a run makes, and refuses such text with a `TypeError` that names where it sits, so
+   * the call fails (a run fails and compensates) instead of every write that carries it. It doesn't ask about what a
+   * codec encodes, which the store sees only encoded. In an error's text, which can't be refused, U+0000 and lone
+   * surrogates are replaced with U+FFFD where the store refuses it. Without this method, nothing is refused or
+   * replaced, and the store's own failure in `write()` or `create()` is all there is.
+   */
+  unstorableText?(text: string, column: WorkflowTextColumn): string | undefined;
 }
 
 /** The ids, names and keys `WorkflowStore.checkKey()` checks. */
 export type WorkflowKeyKind = 'instanceId' | 'workflow' | 'concurrencyKey' | 'rateLimitKey' | 'journalName' | 'signal' | 'signalKey';
+
+/** Where `WorkflowStore.unstorableText()`'s text is stored: inside a JSON value, or in a text column of its own. */
+export type WorkflowTextColumn = 'json' | 'text';
 
 /** `WorkflowStore.get()`'s result, and `WorkflowClient.getStatus()`'s. */
 export interface WorkflowInstanceDetails extends WorkflowInstance {
