@@ -134,9 +134,9 @@ export class WorkflowEventPublisher implements IEventPublisher, OnModuleInit, On
       return;
     }
 
-    // Issued back to back, not awaited in between: a driver whose transactions are synchronous
-    // must see every statement before the application's callback returns, and on the
-    // transaction's one connection they still run in this order.
+    // Issued back to back, not awaited in between: on the transaction's one connection they still
+    // run in this order. The application awaits publish() in its transaction callback, so its
+    // driver must accept an async one (not better-sqlite3's), as start() and signal() require.
     const settled = await Promise.allSettled(writes.map((write) => write.run(transaction)));
     const index = settled.findIndex((result) => result.status === 'rejected');
     if (index !== -1) {
