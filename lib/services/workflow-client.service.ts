@@ -106,7 +106,9 @@ export class WorkflowClient implements BeforeApplicationShutdown {
    * retried step gets its instance back instead of starting another. An id, a
    * key or an input string the store can't keep (`WorkflowStore.unstorableText()`:
    * U+0000 on PostgreSQL, a lone UTF-16 surrogate in JSON on PostgreSQL and MySQL)
-   * is refused with a `TypeError`.
+   * is refused with a `TypeError`. Await it in your transaction's callback: a
+   * driver whose callback can't be async (better-sqlite3) commits before a failure
+   * is reported.
    */
   async start<W>(workflow: Type<W> | string, input: WorkflowInput<W>, options: StartWorkflowOptions = {}): Promise<WorkflowStartResult> {
     const resolved = this.registry.resolve(workflow as Type<unknown> | string, options.version);
@@ -121,8 +123,8 @@ export class WorkflowClient implements BeforeApplicationShutdown {
       rateLimitKey: options.rateLimitKey,
       priority: options.priority,
     });
-    // Nothing is awaited before the store's call: on a driver whose transactions are
-    // synchronous, its statements must run before the application's transaction callback returns.
+    // Nothing is awaited before the store's call: calls issued back to back (the CQRS publisher's)
+    // reach the transaction's connection in the order they were made.
     const { instance, created } = await (options.transaction === undefined
       ? this.store.create(data)
       : this.storeMethod('createInTransaction', 'start')(options.transaction, data));
@@ -295,7 +297,8 @@ export class WorkflowClient implements BeforeApplicationShutdown {
    * signal and the wake-ups commit or roll back with your transaction. With
    * `id`, or from inside a workflow step, a repeated signal is stored once.
    * A name, key, id or payload string the store can't keep is refused with a
-   * `TypeError`, as in `start()`.
+   * `TypeError`, as in `start()`. Await it in your transaction's callback, as
+   * `start()`.
    */
   async signal<T>(
     signal: WorkflowSignal<T> | string,
