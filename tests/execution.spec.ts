@@ -13,6 +13,7 @@ import {
   WorkflowClient,
   WorkflowError,
   type WorkflowContext,
+  type WorkflowStepOptions,
 } from '../lib/index.js';
 import { boot, forever, tempDb, type Node, type TestDb, World } from './support.js';
 
@@ -558,7 +559,7 @@ describe('step timeouts', () => {
   });
 
   // Node runs a timer longer than 2^31 - 1 ms (about 24.8 days) after 1 ms instead.
-  it.each([{ timeout: '30d' }, { heartbeatTimeout: '30d' }])('lets a step complete under %o, longer than a timer can wait', async (options) => {
+  it.each<WorkflowStepOptions<unknown>>([{ timeout: '30d' }, { heartbeatTimeout: '30d' }])('lets a step complete under %o, longer than a timer can wait', async (options) => {
     @Workflow('month-long')
     class MonthLong {
       async run(ctx: WorkflowContext) {
