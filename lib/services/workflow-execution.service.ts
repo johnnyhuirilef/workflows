@@ -19,7 +19,7 @@ import {
 import { serializeError } from '../utils/serialize-error.util.js';
 import { assertStorableJson, assertStorableText, unstorableJson, type TextChecks } from '../utils/storable-text.util.js';
 import { runInStepScope } from '../utils/step-scope.util.js';
-import { setTimer } from '../utils/timer.util.js';
+import { setTimer } from '../core/utils/timer.util.js';
 import type { SerializedWorkflowError } from '../interfaces/serialized-workflow-error.interface.js';
 import type {
   Journaled,
